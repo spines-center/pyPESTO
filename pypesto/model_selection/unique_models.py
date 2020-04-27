@@ -50,6 +50,14 @@ PARAMETER_VALUE_DELIMITER = ';'
 def unpack_file(file_name: str):
     '''
     Unpacks a model definition file into a new temporary file that is returned.
+
+    TODO
+        - Consider alternatives to `_{n}` suffix for model `modelId`
+        - How should the selected model be reported to the user? Remove the
+          `_{n}` suffix and report the original `modelId` alongside the
+          selected parameters? Generate a set of PEtab files with the chosen
+          SBML file and the parameters specified in a parameter or condition
+          file?
     '''
     expanded_models_file = tempfile.NamedTemporaryFile(mode='w', delete=False)
     with open(file_name) as fh:
