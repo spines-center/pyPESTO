@@ -57,7 +57,8 @@ def rosenbrock_problem():
                         'AdaptiveMetropolis',
                         'ParallelTempering',
                         'AdaptiveParallelTempering',
-                        'Pymc3'])
+                        'Pymc3',
+                        'Emcee'])
 def sampler(request):
     if request.param == 'Metropolis':
         return pypesto.MetropolisSampler()
@@ -73,6 +74,8 @@ def sampler(request):
             n_chains=5)
     elif request.param == 'Pymc3':
         return pypesto.Pymc3Sampler(tune=5)
+    elif request.param == 'Emcee':
+        return pypesto.sampling.EmceeSampler(nwalkers=10)
 
 
 @pytest.fixture(params=['gaussian', 'gaussian_mixture', 'rosenbrock'])
