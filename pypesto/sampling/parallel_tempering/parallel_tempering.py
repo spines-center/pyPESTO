@@ -3,9 +3,10 @@ from tqdm import tqdm
 import numpy as np
 import copy
 
-from ..problem import Problem
-from .sampler import Sampler, InternalSampler
-from .result import McmcPtResult
+from ...problem import Problem
+from ..sampler import Sampler, InternalSampler
+from ..result import McmcPtResult
+from .engine import PTEngine, SingleCorePTEngine
 
 
 class ParallelTemperingSampler(Sampler):
@@ -16,6 +17,7 @@ class ParallelTemperingSampler(Sampler):
             internal_sampler: InternalSampler,
             betas: Sequence[float] = None,
             n_chains: int = None,
+            engine: PTEngine = None,
             options: Dict = None):
         super().__init__(options)
 
@@ -36,6 +38,10 @@ class ParallelTemperingSampler(Sampler):
         # configure internal samplers
         for sampler in self.samplers:
             sampler.make_internal()
+
+        if engine is None:
+            engine = SingleCorePTEngine()
+        self.engine = engine
 
     @classmethod
     def default_options(cls) -> Dict:
@@ -63,8 +69,8 @@ class ParallelTemperingSampler(Sampler):
         # loop over iterations
         for i_sample in tqdm(range(int(n_samples))):
             # sample
-            for sampler, beta in zip(self.samplers, self.betas):
-                sampler.sample(n_samples=1, beta=beta)
+            self.samplers = self.engine.sample(
+                n_samples=1, samplers=self.samplers, betas=self.betas)
 
             # swap samples
             swapped = self.swap_samples()

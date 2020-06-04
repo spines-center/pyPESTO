@@ -57,6 +57,8 @@ def rosenbrock_problem():
                         'AdaptiveMetropolis',
                         'ParallelTempering',
                         'AdaptiveParallelTempering',
+                        'MultiProcessParallelTempering',
+                        'MultiThreadParallelTempering',
                         'Pymc3'])
 def sampler(request):
     if request.param == 'Metropolis':
@@ -71,6 +73,16 @@ def sampler(request):
         return pypesto.AdaptiveParallelTemperingSampler(
             internal_sampler=pypesto.AdaptiveMetropolisSampler(),
             n_chains=5)
+    elif request.param == 'MultiThreadParallelTempering':
+        engine = pypesto.sampling.MultiThreadPTEngine(n_threads=4)
+        return pypesto.AdaptiveParallelTemperingSampler(
+            internal_sampler=pypesto.AdaptiveMetropolisSampler(),
+            n_chains=5, engine=engine)
+    elif request.param == 'MultiProcessParallelTempering':
+        engine = pypesto.sampling.MultiProcessPTEngine(n_procs=4)
+        return pypesto.AdaptiveParallelTemperingSampler(
+            internal_sampler=pypesto.AdaptiveMetropolisSampler(),
+            n_chains=5, engine=engine)
     elif request.param == 'Pymc3':
         return pypesto.Pymc3Sampler(tune=5)
 
