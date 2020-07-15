@@ -768,47 +768,59 @@ class CsvHistory(History):
                 )
             trace_copy.to_csv(self.file)
 
-    @staticmethod
-    def load(id: str,
-             file: str):
-        """Loads the History object from memory."""
-        raise NotImplementedError()
+    @trace_wrap
+    def get_x_trace(
+            self, ix: Union[int, Sequence[int], None] = None
+    ) -> Union[Sequence[np.ndarray], np.ndarray]:
+        return list(self._trace[X].values[ix])
 
-    def get_x(self, ix) -> np.ndarray:
-        return self._trace[X].values[ix, :]
+    @trace_wrap
+    def get_fval_trace(
+            self, ix: Union[int, Sequence[int], None]
+    ) -> Union[Sequence[float], float]:
+        return list(self._trace[(FVAL, np.nan)].values[ix])
 
-    def get_fval_trace(self) -> Sequence[float]:
-        return self._trace[(FVAL, np.NaN)].values
+    @trace_wrap
+    def get_grad_trace(
+            self, ix: Union[int, Sequence[int], None] = None
+    ) -> Union[Sequence[MaybeArray], MaybeArray]:
+        return list(self._trace[GRAD].values[ix])
 
-    def get_fval(self, ix) -> float:
-        return self._trace.loc[ix, (FVAL, np.NaN)]
+    @trace_wrap
+    def get_hess_trace(
+            self, ix: Union[int, Sequence[int], None] = None
+    ) -> Union[Sequence[MaybeArray], MaybeArray]:
+        return list(self._trace[(HESS, np.nan)].values[ix])
 
-    def get_grad(self, ix) -> np.ndarray:
-        return self._trace[GRAD].values[ix, :]
+    @trace_wrap
+    def get_res_trace(
+            self, ix: Union[int, Sequence[int], None] = None
+    ) -> Union[Sequence[MaybeArray], MaybeArray]:
+        return list(self._trace[(RES, np.nan)].values[ix])
 
-    def get_hess(self, ix) -> np.ndarray:
-        return self._trace[(HESS, np.NaN)].values[ix]
+    @trace_wrap
+    def get_sres_trace(
+            self, ix: Union[int, Sequence[int], None] = None
+    ) -> Union[Sequence[MaybeArray], MaybeArray]:
+        return list(self._trace[(SRES, np.nan)].values[ix])
 
-    def get_res(self, ix) -> np.ndarray:
-        return self._trace[(RES, np.NaN)].values[ix]
+    @trace_wrap
+    def get_chi2_trace(
+            self, ix: Union[int, Sequence[int], None] = None
+    ) -> Union[Sequence[float], float]:
+        return list(self._trace[(CHI2, np.nan)].values[ix])
 
-    def get_sres(self, ix) -> np.ndarray:
-        return self._trace[(SRES, np.NaN)].values[ix]
+    @trace_wrap
+    def get_schi2_trace(
+            self, ix: Union[int, Sequence[int], None] = None
+    ) -> Union[Sequence[MaybeArray], MaybeArray]:
+        return list(self._trace[SCHI2].values[ix])
 
-    def get_chi2_trace(self) -> Sequence[np.ndarray]:
-        return self._trace[(CHI2, np.NaN)].values
-
-    def get_chi2(self, ix) -> float:
-        return self._trace.loc[ix, (CHI2, np.NaN)]
-
-    def get_schi2(self, ix) -> np.ndarray:
-        return self._trace[SCHI2].values[ix, :]
-
-    def get_time_trace(self) -> Sequence[float]:
-        return self._trace[(TIME, np.NaN)].values
-
-    def get_time(self, ix) -> float:
-        return self._trace.loc[ix, (TIME, np.NaN)]
+    @trace_wrap
+    def get_time_trace(
+            self, ix: Union[int, Sequence[int], None] = None
+    ) -> Union[Sequence[float], float]:
+        return list(self._trace[(TIME, np.nan)].values[ix])
 
 
 class Hdf5History(History):
@@ -1195,9 +1207,9 @@ class OptimizerHistory:
         # etc
         max_init_iter = 3
         for it in range(min(len(self.history), max_init_iter)):
-            candidate = self.history.get_fval(it)
+            candidate = self.history.get_fval_trace(it)
             if not np.isnan(candidate) \
-                    and np.allclose(self.history.get_x(it), self.x0):
+                    and np.allclose(self.history.get_x_trace(it), self.x0):
                 self.fval0 = candidate
                 break
 
@@ -1221,8 +1233,8 @@ class OptimizerHistory:
                 self.extract_from_history(var, ix_min)
                 if getattr(self, target) is None \
                         and ix_try < len(self.history) \
-                        and np.allclose(self.history.get_x(ix_min),
-                                        self.history.get_x(ix_try)):
+                        and np.allclose(self.history.get_x_trace(ix_min),
+                                        self.history.get_x_trace(ix_try)):
 
                     # gradient/sres typically evaluated on the next call
                     # so we check if x remains the same and if yes try to
@@ -1230,7 +1242,7 @@ class OptimizerHistory:
                     self.extract_from_history(var, ix_try)
 
     def extract_from_history(self, var, ix):
-        val = getattr(self.history, f'get_{var}')(ix)
+        val = getattr(self.history, f'get_{var}_trace')(ix)
         if not np.all(np.isnan(val)):
             setattr(self, f'{var}_min', val)
 
@@ -1301,6 +1313,12 @@ def extract_values(mode: str,
         alt_values = {CHI2: chi2, SCHI2: schi2, HESS: fim}
         if schi2 is not None:
             alt_values[GRAD] = 0.5 * schi2
+        # filter according to options
+        alt_values = {
+            key: val
+            for key, val in alt_values.items()
+            if options.get(f'trace_record_{key}', True)}
+
         for var, val in alt_values.items():
             if val is not None:
                 ret[var] = ret.get(var, val)
