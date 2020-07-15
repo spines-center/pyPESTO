@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import h5py
+import numbers
 import copy
 import time
 import os
@@ -8,17 +9,44 @@ import abc
 import warnings
 from typing import Any, Dict, List, Optional, Tuple, Sequence, Union
 
+
 from .constants import (
     MODE_FUN, MODE_RES, FVAL, GRAD, HESS, RES, SRES, CHI2, SCHI2, TIME,
     N_FVAL, N_GRAD, N_HESS, N_RES, N_SRES, X)
 from .util import res_to_chi2, sres_to_schi2, sres_to_fim
 
-ResultType = Dict[str, Union[float, np.ndarray]]
+ResultDict = Dict[str, Union[float, np.ndarray]]
+MaybeArray = Union[np.ndarray, 'np.nan']
+
+
+def trace_wrap(f):
+    """
+    Wrapper around trace getters that transforms input `ix` vectors to a valid
+    index list, and reduces for integer `ix` the output to a single value.
+    """
+    def wrapped_f(
+            self, ix: Union[Sequence[int], int, None] = None
+    ) -> Union[Sequence[Union[float, MaybeArray]], Union[float, MaybeArray]]:
+        # whether to reduce the output
+        reduce = isinstance(ix, numbers.Integral)
+        # default: full list
+        if ix is None:
+            ix = np.arange(0, len(self), dtype=int)
+        # turn every input into an index list
+        if reduce:
+            ix = np.array([ix], dtype=int)
+        # obtain the trace
+        trace = f(self, ix)
+        # reduce the output
+        if reduce:
+            trace = trace[0]
+        return trace
+    return wrapped_f
 
 
 class HistoryOptions(dict):
     """
-    Options for the objective that are used in optimization, profiles
+    Options for the objective that are used in optimization, profiling
     and sampling.
 
     In addition implements a factory pattern to generate history objects.
@@ -139,7 +167,7 @@ class HistoryOptions(dict):
             return Hdf5History(id=id, file=storage_file, options=self)
         else:
             raise ValueError(
-                "Currently only history storage to '.csv' and '.hdf5'"
+                "Currently, only history storage to '.csv' and '.hdf5'"
                 "is supported")
 
 
@@ -159,7 +187,7 @@ class HistoryBase(abc.ABC):
             x: np.ndarray,
             sensi_orders: Tuple[int, ...],
             mode: str,
-            result: ResultType
+            result: ResultDict
     ) -> None:
         """Update history after a function evaluation.
 
@@ -382,7 +410,7 @@ class History(HistoryBase):
             x: np.ndarray,
             sensi_orders: Tuple[int, ...],
             mode: str,
-            result: ResultType
+            result: ResultDict
     ) -> None:
         """Update history after a function evaluation.
 
@@ -491,10 +519,11 @@ class MemoryHistory(History):
             x: np.ndarray,
             sensi_orders: Tuple[int, ...],
             mode: str,
-            result: ResultType
+            result: ResultDict
     ) -> None:
         super().update(x, sensi_orders, mode, result)
         self._update_trace(x, mode, result)
+
 
     def get_history_directory(self):
         warnings.warn('Saving History objects is currently only supported '
@@ -667,7 +696,7 @@ class CsvHistory(History):
             x: np.ndarray,
             sensi_orders: Tuple[int, ...],
             mode: str,
-            result: ResultType
+            result: ResultDict
     ) -> None:
         super().update(x, sensi_orders, mode, result)
         self._update_trace(x, mode, result)
@@ -683,7 +712,7 @@ class CsvHistory(History):
     def _update_trace(self,
                       x: np.ndarray,
                       mode: str,
-                      result: ResultType):
+                      result: ResultDict):
         """
         Update and possibly store the trace.
         """
@@ -756,7 +785,6 @@ class CsvHistory(History):
                 columns.extend([(var,)])
 
         # TODO: multi-index for res, sres, hess
-
         self._trace = pd.DataFrame(columns=pd.MultiIndex.from_tuples(columns),
                                    dtype='float64')
 
@@ -865,7 +893,7 @@ class Hdf5History(History):
             x: np.ndarray,
             sensi_orders: Tuple[int, ...],
             mode: str,
-            result: ResultType
+            result: ResultDict
     ) -> None:
         super().update(x, sensi_orders, mode, result)
         self._update_trace(x, sensi_orders, mode, result)
@@ -983,7 +1011,7 @@ class Hdf5History(History):
                       x: np.ndarray,
                       sensi_orders: Tuple[int],
                       mode: str,
-                      result: ResultType):
+                      result: ResultDict):
         """
         Update and possibly store the trace.
         """
@@ -1143,7 +1171,7 @@ class OptimizerHistory:
                x: np.ndarray,
                sensi_orders: Tuple[int],
                mode: str,
-               result: ResultType) -> None:
+               result: ResultDict) -> None:
         """Update history and best found value."""
         self.history.update(x, sensi_orders, mode, result)
         self._update_vals(x, result)
@@ -1153,7 +1181,7 @@ class OptimizerHistory:
 
     def _update_vals(self,
                      x: np.ndarray,
-                     result: ResultType):
+                     result: ResultDict):
         """
         Update initial and best function values.
         """
@@ -1223,6 +1251,7 @@ class OptimizerHistory:
                         and ix_try < len(self.history) \
                         and np.allclose(self.history.get_x(ix_min),
                                         self.history.get_x(ix_try)):
+
                     # gradient/sres typically evaluated on the next call
                     # so we check if x remains the same and if yes try to
                     # extract from the next
@@ -1281,7 +1310,7 @@ def string2ndarray(x: Union[str, float]) -> Union[np.ndarray, float]:
 
 
 def extract_values(mode: str,
-                   result: ResultType,
+                   result: ResultDict,
                    options: HistoryOptions) -> Dict:
     """Extract values to record from result."""
     ret = dict()

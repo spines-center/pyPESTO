@@ -12,14 +12,19 @@ from ..problem import Problem
 from .result import OptimizerResult
 
 try:
-    import pyswarm
+    import ipopt
 except ImportError:
-    pyswarm = None
+    ipopt = None
 
 try:
     import dlib
 except ImportError:
     dlib = None
+
+try:
+    import pyswarm
+except ImportError:
+    pyswarm = None
 
 EXITFLAG_LOADED_FROM_FILE = -99
 
@@ -138,7 +143,8 @@ def fill_result_from_objective_history(
             "Parameters obtained from history and optimizer do not match: "
             f"{optimizer_history.x_min}, {result.x}")
         # do not use value from history
-        update_vals = False
+        update_vals = result.fval is None
+
 
     # update optimal values from history if reported function values
     # and parameters coincide
@@ -185,7 +191,7 @@ def read_result_from_file(problem: Problem, history_options: HistoryOptions,
         raise NotImplementedError()
 
     opt_hist = OptimizerHistory(
-        history, history.get_x(0),
+        history, history.get_x_trace(0),
         generate_from_history=True
     )
 
@@ -245,8 +251,7 @@ class Optimizer(abc.ABC):
     def is_least_squares(self):
         return False
 
-    @staticmethod
-    def get_default_options():
+    def get_default_options(self):
         """
         Create default options specific for the optimizer.
         """
@@ -318,7 +323,10 @@ class ScipyOptimizer(Optimizer):
                 loss='linear',
                 **self.options
             )
-
+            # extract fval/grad from result, note that fval is not available
+            # from least squares solvers
+            grad = getattr(res, 'grad', None)
+            fval = None
         else:
             # is an fval based optimization method
 
@@ -367,11 +375,9 @@ class ScipyOptimizer(Optimizer):
                 bounds=bounds,
                 options=self.options,
             )
-
-        # some fields are not filled by all optimizers, then fill in None
-        grad = getattr(res, 'grad', None) if self.is_least_squares() \
-            else getattr(res, 'jac', None)
-        fval = None if self.is_least_squares() else res.fun
+            # extract fval/grad from result
+            grad = getattr(res, 'jac', None)
+            fval = res.fun
 
         # fill in everything known, although some parts will be overwritten
         optimizer_result = OptimizerResult(
@@ -388,13 +394,63 @@ class ScipyOptimizer(Optimizer):
     def is_least_squares(self):
         return re.match(r'(?i)^(ls_)', self.method)
 
-    @staticmethod
     def get_default_options(self):
         if self.is_least_squares:
             options = {'max_nfev': 1000, 'disp': False}
         else:
             options = {'maxiter': 1000, 'disp': False}
         return options
+
+
+class IpoptOptimizer(Optimizer):
+    """Use IpOpt (https://pypi.org/project/ipopt/) for optimization."""
+
+    def __init__(
+            self, options: Dict = None):
+        """
+        Parameters
+        ----------
+        options:
+            Options are directly passed on to `ipopt.minimize_ipopt`.
+        """
+        super().__init__()
+        self.options = options
+
+    @fix_decorator
+    @time_decorator
+    @history_decorator
+    def minimize(
+            self,
+            problem: Problem,
+            x0: np.ndarray,
+            id: str,
+            history_options: HistoryOptions = None,
+    ) -> OptimizerResult:
+        objective = problem.objective
+
+        bounds = np.array([problem.lb, problem.ub]).T
+
+        ret = ipopt.minimize_ipopt(
+            fun=objective.get_fval,
+            x0=x0,
+            method=None,  # ipopt does not use this argument for anything
+            jac=objective.get_grad,
+            hess=None,  # ipopt does not support Hessian yet
+            hessp=None,  # ipopt does not support Hessian vector product yet
+            bounds=bounds,
+            tol=None,  # can be set via options
+            options=self.options,
+        )
+
+        # the ipopt return object is a scipy.optimize.OptimizeResult
+        return OptimizerResult(
+            x=ret.x,
+            exitflag=ret.status,
+            message=ret.message
+        )
+
+    def is_least_squares(self):
+        return False
 
 
 class DlibOptimizer(Optimizer):
@@ -456,7 +512,6 @@ class DlibOptimizer(Optimizer):
     def is_least_squares(self):
         return False
 
-    @staticmethod
     def get_default_options(self):
         return {}
 

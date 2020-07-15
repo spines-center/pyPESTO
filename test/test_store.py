@@ -3,6 +3,7 @@ This is for testing the pypesto.Storage and history to HDF5.
 """
 import os
 import tempfile
+
 import pytest
 import numpy as np
 import scipy.optimize as so
@@ -10,7 +11,7 @@ import pypesto
 from pypesto.objective.constants import (X, FVAL, GRAD, HESS, RES, SRES, CHI2,
                                          SCHI2, TIME)
 
-from pypesto.storage import (
+from pypesto.store import (
     ProblemHDF5Writer, ProblemHDF5Reader, OptimizationResultHDF5Writer,
     OptimizationResultHDF5Reader)
 from .visualize.test_visualize import create_problem, \
@@ -129,3 +130,4 @@ def test_storage_trace():
                             getattr(mem_res['history'],
                                     f'get_{entry}_trace')(), getattr(
                                 hdf_res['history'], f'get_{entry}_trace')())
+

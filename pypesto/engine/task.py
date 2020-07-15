@@ -1,10 +1,10 @@
-import logging
 import abc
 import numpy as np
 
 from ..problem import Problem
 from ..objective import HistoryOptions
 import pypesto
+import logging
 
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ class Task(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def execute(self) -> 'pypesto.OptimizerResult':  # noqa: R0201
+    def execute(self):
         """
         Execute the task and return its results.
         """
@@ -75,3 +75,4 @@ class OptimizerTask(Task):
             history_options=self.history_options)
 
         return optimizer_result
+
