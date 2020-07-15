@@ -8,6 +8,8 @@ import pytest
 import numpy as np
 import scipy.optimize as so
 import pypesto
+import pypesto.optimize as optimize
+
 from pypesto.objective.constants import (X, FVAL, GRAD, HESS, RES, SRES, CHI2,
                                          SCHI2, TIME)
 
@@ -81,7 +83,7 @@ def test_storage_problem():
                 assert not isinstance(read_problem.__dict__[attr], np.ndarray)
 
 
-@pytest.mark.skip(reason="strange error in memory history")
+# @pytest.mark.skip(reason="strange error in memory history")
 def test_storage_trace():
     objective1 = pypesto.Objective(fun=so.rosen,
                                    grad=so.rosen_der,
@@ -96,12 +98,10 @@ def test_storage_trace():
     startpoints = pypesto.startpoint.latin_hypercube(n_starts=n_starts,
                                                      lb=lb,
                                                      ub=ub)
-    problem1 = pypesto.Problem(objective=objective1, lb=lb, ub=ub)
-    problem2 = pypesto.Problem(objective=objective2, lb=lb, ub=ub)
-    problem1.x_guesses = startpoints
-    problem2.x_guesses = startpoints
-    optimizer1 = pypesto.ScipyOptimizer()
-    optimizer2 = pypesto.ScipyOptimizer()
+    problem1 = pypesto.Problem(objective=objective1, lb=lb, ub=ub, x_guesses=startpoints)
+    problem2 = pypesto.Problem(objective=objective2, lb=lb, ub=ub, x_guesses=startpoints)
+    optimizer1 = optimize.ScipyOptimizer()
+    optimizer2 = optimize.ScipyOptimizer()
 
     with tempfile.TemporaryDirectory(dir=".") as tmpdirname:
         _, fn = tempfile.mkstemp(".hdf5", dir=f"{tmpdirname}")
@@ -109,13 +109,13 @@ def test_storage_trace():
         history_options_hdf5 = pypesto.HistoryOptions(trace_record=True,
                                                       storage_file="test.hdf5")
         # optimize with history saved to hdf5
-        result_hdf5 = pypesto.minimize(
+        result_hdf5 = optimize.minimize(
             problem=problem1, optimizer=optimizer1,
             n_starts=n_starts, history_options=history_options_hdf5)
 
         # optimizing with history saved in memory
         history_options_memory = pypesto.HistoryOptions(trace_record=True)
-        result_memory = pypesto.minimize(
+        result_memory = optimize.minimize(
             problem=problem2, optimizer=optimizer2,
             n_starts=n_starts, history_options=history_options_memory)
 
