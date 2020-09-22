@@ -635,12 +635,13 @@ class PyswarmsOptimizer(Optimizer):
     Global optimization using pyswarms.
     """
 
-    def __init__(self, options: Dict = None):
+    def __init__(self, par_popsize: float = 10, options: Dict = None):
         super().__init__()
 
         if options is None:
             options = {'maxiter': 200}
         self.options = options
+        self.par_popsize = par_popsize
 
     @fix_decorator
     @time_decorator
@@ -654,19 +655,27 @@ class PyswarmsOptimizer(Optimizer):
     ) -> OptimizerResult:
         lb = problem.lb
         ub = problem.ub
+        bounds = []
+        for NumBounds in range(0, len(lb)):
+            bounds.append((lb[NumBounds], ub[NumBounds]))
+
         if pyswarms is None:
             raise ImportError(
                 "This optimizer requires an installation of pyswarms.")
 
-        #xopt, fopt = pyswarms.pso(
-        #    problem.objective.get_fval, lb, ub, **self.options)
+        optimizer = pyswarms.single.global_best.GlobalBestPSO(
+            n_particles=self.par_popsize, dimensions=len(x0), options=self.options,
+            bounds=(lb, ub))
 
-        #optimizer_result = OptimizerResult(
-        #    x=np.array(xopt),
-        #    fval=fopt
-        #)
+        cost, pos = optimizer.optimize(
+            problem.objective.get_fval, iters=self.options['maxiter'])
 
-        #return optimizer_result
+        optimizer_result = OptimizerResult(
+            x=np.array(cost),
+            fval=pos
+        )
+
+        return optimizer_result
 
     def is_least_squares(self):
         return False
