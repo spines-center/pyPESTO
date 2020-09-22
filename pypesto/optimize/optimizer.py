@@ -27,6 +27,11 @@ except ImportError:
     pyswarm = None
 
 try:
+    import pyswarms
+except ImportError:
+    pyswarms = None
+
+try:
     import cma
 except ImportError:
     cma = None
@@ -620,6 +625,48 @@ class CmaesOptimizer(Optimizer):
                                            fval=result[1])
 
         return optimizer_result
+
+    def is_least_squares(self):
+        return False
+
+
+class PyswarmsOptimizer(Optimizer):
+    """
+    Global optimization using pyswarms.
+    """
+
+    def __init__(self, options: Dict = None):
+        super().__init__()
+
+        if options is None:
+            options = {'maxiter': 200}
+        self.options = options
+
+    @fix_decorator
+    @time_decorator
+    @history_decorator
+    def minimize(
+            self,
+            problem: Problem,
+            x0: np.ndarray,
+            id: str,
+            history_options: HistoryOptions = None,
+    ) -> OptimizerResult:
+        lb = problem.lb
+        ub = problem.ub
+        if pyswarms is None:
+            raise ImportError(
+                "This optimizer requires an installation of pyswarms.")
+
+        #xopt, fopt = pyswarms.pso(
+        #    problem.objective.get_fval, lb, ub, **self.options)
+
+        #optimizer_result = OptimizerResult(
+        #    x=np.array(xopt),
+        #    fval=fopt
+        #)
+
+        #return optimizer_result
 
     def is_least_squares(self):
         return False
