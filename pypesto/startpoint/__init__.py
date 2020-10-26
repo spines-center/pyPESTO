@@ -35,3 +35,4 @@ max_n_fval: int, optional
 from .uniform import uniform
 from .latin_hypercube import latin_hypercube
 from .util import assign_startpoints
+from .from_history import StartingPointsFromHistory
