@@ -2,10 +2,31 @@ from typing import Dict, List, Sequence, Union
 from tqdm import tqdm
 import numpy as np
 import copy
+from multiprocessing import Manager, Queue, Process, Event
+import queue
 
 from ..problem import Problem
 from .sampler import Sampler, InternalSampler
 from .result import McmcPtResult
+
+
+class ParallelTemperingSamplerWorker(Process):
+    def __init__(self, work_queue: Queue):
+        super().__init__()
+        self._exit = Event()
+        self._q = work_queue
+
+    def run(self) -> None:
+        while not self._exit.is_set():
+            try:
+                sampler, beta = self._q.get(block=True, timeout=1)
+                sampler.sample(n_samples=1, beta=beta)
+                self._q.task_done()
+            except queue.Empty:
+                continue
+
+    def terminate(self) -> None:
+        self._exit.set()
 
 
 class ParallelTemperingSampler(Sampler):
@@ -64,16 +85,23 @@ class ParallelTemperingSampler(Sampler):
     def sample(
             self, n_samples: int, beta: float = 1.):
         # loop over iterations
-        for i_sample in tqdm(range(int(n_samples))):  # TODO test
-            # sample
-            for sampler, beta in zip(self.samplers, self.betas):
-                sampler.sample(n_samples=1, beta=beta)
+        with Manager() as mgr:
+            workqueue = mgr.Queue()
+            workers = [ParallelTemperingSamplerWorker(workqueue) for _ in range(len(self.samplers))]
+            [worker.start() for worker in workers]
+            for i_sample in tqdm(range(int(n_samples))):
+                # sample
+                for sampler, beta in zip(self.samplers, self.betas):
+                    workqueue.put((sampler, beta))
+                    # sampler.sample(n_samples=1, beta=beta)
+                workqueue.join()  # blocks until all samplers have processed an item
 
-            # swap samples
-            swapped = self.swap_samples()
+                # swap samples
+                swapped = self.swap_samples()
 
-            # adjust temperatures
-            self.adjust_betas(i_sample, swapped)
+                # adjust temperatures
+                self.adjust_betas(i_sample, swapped)
+            [worker.terminate() for worker in workers]
 
     def get_samples(self) -> McmcPtResult:
         """Concatenate all chains."""
