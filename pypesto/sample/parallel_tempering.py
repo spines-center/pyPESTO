@@ -82,8 +82,9 @@ class ParallelTemperingSampler(Sampler):
             sampler.initialize(_problem, x0)
         self.betas = self.betas0
 
-    def sample(
-            self, n_samples: int, beta: float = 1.):
+    def sample(self,
+               n_samples: int,
+               beta: float = 1.):
         # loop over iterations
         with Manager() as mgr:
             workqueue = mgr.Queue()
@@ -102,6 +103,7 @@ class ParallelTemperingSampler(Sampler):
                 # adjust temperatures
                 self.adjust_betas(i_sample, swapped)
             [worker.terminate() for worker in workers]
+            [worker.join() for worker in workers]
 
     def get_samples(self) -> McmcPtResult:
         """Concatenate all chains."""
