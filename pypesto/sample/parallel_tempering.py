@@ -2,7 +2,7 @@ from typing import Dict, List, Sequence, Union
 from tqdm import tqdm
 import numpy as np
 import copy
-from multiprocessing import Manager, Queue, Process, Event
+from multiprocess import Manager, Queue, Process, Event
 import queue
 
 from ..problem import Problem
@@ -11,16 +11,18 @@ from .result import McmcPtResult
 
 
 class ParallelTemperingSamplerWorker(Process):
-    def __init__(self, work_queue: Queue):
+    def __init__(self, work_queue: Queue, return_queue: Queue):
         super().__init__()
         self._exit = Event()
         self._q = work_queue
+        self._r = return_queue
 
     def run(self) -> None:
         while not self._exit.is_set():
             try:
-                sampler, beta = self._q.get(block=True, timeout=1)
+                id, sampler, beta = self._q.get(block=True, timeout=1)
                 sampler.sample(n_samples=1, beta=beta)
+                self._r.put((id, sampler, beta))
                 self._q.task_done()
             except queue.Empty:
                 continue
@@ -87,15 +89,24 @@ class ParallelTemperingSampler(Sampler):
                beta: float = 1.):
         # loop over iterations
         with Manager() as mgr:
-            workqueue = mgr.Queue()
-            workers = [ParallelTemperingSamplerWorker(workqueue) for _ in range(len(self.samplers))]
+            workqueue = mgr.Queue(maxsize=len(self.samplers))
+            donequeue = mgr.Queue(maxsize=len(self.samplers))
+            workers = [ParallelTemperingSamplerWorker(workqueue, donequeue) for _ in range(len(self.samplers))]
+            for worker in workers:
+                worker.daemon = True
             [worker.start() for worker in workers]
+
+            # TODO: this loop really should be inside the workers but oh well
             for i_sample in tqdm(range(int(n_samples))):
                 # sample
-                for sampler, beta in zip(self.samplers, self.betas):
-                    workqueue.put((sampler, beta))
+                for id, sampler, beta in zip(range(len(self.samplers)), self.samplers, self.betas):
+                    workqueue.put((id, sampler, beta))
                     # sampler.sample(n_samples=1, beta=beta)
                 workqueue.join()  # blocks until all samplers have processed an item
+
+                for _ in range(len(self.samplers)):
+                    id, sampler, beta = donequeue.get()
+                    self.samplers[id] = sampler
 
                 # swap samples
                 swapped = self.swap_samples()
