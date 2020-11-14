@@ -24,7 +24,7 @@ class ParallelTemperingSamplerWorker(Process):
                 sampler.sample(n_samples=1, beta=beta)
                 self._r.put((id, sampler, beta))
                 self._q.task_done()
-            except queue.Empty:
+            except (EOFError, queue.Empty):
                 continue
 
     def terminate(self) -> None:
