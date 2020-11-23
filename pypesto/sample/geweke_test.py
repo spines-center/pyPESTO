@@ -186,6 +186,8 @@ def burn_in_by_sequential_geweke(chain: np.ndarray,
     # round each element to the nearest integer
     # toward zero
     step = np.floor(nsamples / n).astype(int)
+    if step < 1:
+        raise ValueError("number of samples must be >= 20")
     fragments = np.arange(0, nsamples-1, step)
 
     z = np.zeros((len(fragments), npar))

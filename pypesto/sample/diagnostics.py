@@ -8,7 +8,7 @@ from .auto_correlation import autocorrelation_sokal
 logger = logging.getLogger(__name__)
 
 
-def geweke_test(result: Result, zscore: float = 2.) -> int:
+def geweke_test(result: Result, zscore: float = 2.) -> np.ndarray:
     """
     Calculates the burn-in of MCMC chains.
 
@@ -27,19 +27,22 @@ def geweke_test(result: Result, zscore: float = 2.) -> int:
 
     """
     # Get parameter samples as numpy arrays
-    chain = np.asarray(result.sample_result.trace_x[0])
+    result.sample_result.burn_in = np.empty((result.sample_result.trace_x.shape[0]))
 
-    # Calculate burn in index
-    burn_in = burn_in_by_sequential_geweke(chain=chain,
-                                           zscore=zscore)
+    for chain_id in range(result.sample_result.trace_x.shape[0]):
+        chain = result.sample_result.trace_x[chain_id]
 
-    # Log
-    logger.info(f'Geweke burn-in index: {burn_in}')
+        # Calculate burn in index
+        burn_in = burn_in_by_sequential_geweke(chain=chain,
+                                               zscore=zscore)
 
-    # Fill in burn-in value into result
-    result.sample_result.burn_in = burn_in
+        # Log
+        logger.info(f'Geweke burn-in index: {burn_in}')
 
-    return burn_in
+        # Fill in burn-in value into result
+        result.sample_result.burn_in[chain_id] = burn_in
+
+    return result.sample_result.burn_in
 
 
 def auto_correlation(result: Result) -> float:

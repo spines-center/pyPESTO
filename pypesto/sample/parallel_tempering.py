@@ -88,6 +88,7 @@ class ParallelTemperingSampler(Sampler):
                n_samples: int,
                beta: float = 1.):
         # loop over iterations
+        # TODO: only do this if switch to do multiprocessing
         with Manager() as mgr:
             workqueue = mgr.Queue(maxsize=len(self.samplers))
             donequeue = mgr.Queue(maxsize=len(self.samplers))
