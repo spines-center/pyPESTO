@@ -93,8 +93,8 @@ class ParallelTemperingSampler(Sampler):
             workqueue = mgr.Queue(maxsize=len(self.samplers))
             donequeue = mgr.Queue(maxsize=len(self.samplers))
             workers = [ParallelTemperingSamplerWorker(workqueue, donequeue) for _ in range(len(self.samplers))]
-            for worker in workers:
-                worker.daemon = True
+            # for worker in workers:
+            #     worker.daemon = True
             [worker.start() for worker in workers]
 
             # TODO: this loop really should be inside the workers but oh well

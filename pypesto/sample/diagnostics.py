@@ -45,7 +45,7 @@ def geweke_test(result: Result, zscore: float = 2.) -> np.ndarray:
     return result.sample_result.burn_in
 
 
-def auto_correlation(result: Result) -> float:
+def auto_correlation(result: Result) -> np.ndarray:
     """
     Calculates the autocorrelation of the MCMC chains.
 
@@ -69,31 +69,34 @@ def auto_correlation(result: Result) -> float:
 
     # Get chain length
     chain_length = result.sample_result.trace_x.shape[1]
+    result.sample_result.auto_correlation = np.empty((result.sample_result.trace_x.shape[0]))
 
-    if burn_in == chain_length:
-        logger.warning("The autocorrelation can not "
-                       "be estimated. The chain seems to "
-                       "not have converged yet.\n"
-                       "You may want to use a larger number "
-                       "of samples.")
-        return None
+    for chain_id in range(result.sample_result.trace_x.shape[0]):
+        if burn_in[chain_id] == chain_length:
+            logger.warning("The autocorrelation can not "
+                           "be estimated. The chain seems to "
+                           "not have converged yet.\n"
+                           "You may want to use a larger number "
+                           "of samples.")
+            result.sample_result.auto_correlation[chain_id] = chain_length
+            continue
 
-    # Get converged parameter samples as numpy arrays
-    chain = np.asarray(result.sample_result.trace_x[0, burn_in:, :])
+        # Get converged parameter samples as numpy arrays
+        chain = np.asarray(result.sample_result.trace_x[chain_id, int(burn_in[chain_id]):, :])
 
-    # Calculate autocorrelation
-    auto_correlation_vector = autocorrelation_sokal(chain=chain)
+        # Calculate autocorrelation
+        auto_correlation_vector = autocorrelation_sokal(chain=chain)
 
-    # Take the maximum over all components
-    _auto_correlation = max(auto_correlation_vector)
+        # Take the maximum over all components
+        _auto_correlation = np.max(auto_correlation_vector)
 
-    # Log
-    logger.info(f'Estimated chain autocorrelation: {_auto_correlation}')
+        # Log
+        logger.info(f'Estimated chain {chain_id} autocorrelation: {_auto_correlation}')
 
-    # Fill in autocorrelation value into result
-    result.sample_result.auto_correlation = _auto_correlation
+        # Fill in autocorrelation value into result
+        result.sample_result.auto_correlation[chain_id] = _auto_correlation
 
-    return _auto_correlation
+    return result.sample_result.auto_correlation
 
 
 def effective_sample_size(result: Result) -> float:
@@ -123,22 +126,25 @@ def effective_sample_size(result: Result) -> float:
     # Get estimated chain autocorrelation
     _auto_correlation = result.sample_result.auto_correlation
 
-    if _auto_correlation is None:
-        return None
+    if _auto_correlation.shape == ():
+        return -1.0
 
-    # Get converged parameter samples as numpy arrays
-    chain = np.asarray(result.sample_result.trace_x[0, burn_in:, :])
+    result.sample_result.effective_sample_size = 0.0
 
-    # Get length of the converged chain
-    N = chain.shape[0]
+    for chain_id in range(result.sample_result.trace_x.shape[0]):
+        # Get converged parameter samples as numpy arrays
+        chain = np.asarray(result.sample_result.trace_x[chain_id, int(burn_in[chain_id]):, :])
 
-    # Calculate effective sample size
-    ess = N / (1 + _auto_correlation)
+        # Get length of the converged chain
+        N = chain.shape[0]
 
-    # Log
-    logger.info(f'Estimated effective sample size: {ess}')
+        # Calculate effective sample size
+        ess = N / (1 + _auto_correlation[chain_id])
 
-    # Fill in effective sample size value into result
-    result.sample_result.effective_sample_size = ess
+        # Log
+        logger.info(f'Estimated chain {chain_id} effective sample size: {ess}')
 
-    return ess
+        # Fill in effective sample size value into result
+        result.sample_result.effective_sample_size += ess
+
+    return result.sample_result.effective_sample_size
