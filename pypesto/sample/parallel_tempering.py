@@ -88,7 +88,7 @@ class ParallelTemperingSampler(Sampler):
                n_samples: int,
                beta: float = 1.):
         # loop over iterations
-        # TODO: only do this if switch to do multiprocessing
+        # TODO: add switch for pool type (multiprocessing, multiprocess, MPI, or None)
         with Manager() as mgr:
             workqueue = mgr.Queue(maxsize=len(self.samplers))
             donequeue = mgr.Queue(maxsize=len(self.samplers))
@@ -97,16 +97,16 @@ class ParallelTemperingSampler(Sampler):
             #     worker.daemon = True
             [worker.start() for worker in workers]
 
-            # TODO: this loop really should be inside the workers but oh well
+            # TODO: this loop really should be inside the workers
             for i_sample in tqdm(range(int(n_samples))):
                 # sample
                 for id, sampler, beta in zip(range(len(self.samplers)), self.samplers, self.betas):
-                    workqueue.put((id, sampler, beta))
+                    workqueue.put((id, sampler, beta))  # TODO: pass only new_last_sample instead of entire sampler
                     # sampler.sample(n_samples=1, beta=beta)
                 workqueue.join()  # blocks until all samplers have processed an item
 
                 for _ in range(len(self.samplers)):
-                    id, sampler, beta = donequeue.get()
+                    id, sampler, beta = donequeue.get()  # TODO: get only current_last_sample instead of entire sampler
                     self.samplers[id] = sampler
 
                 # swap samples
