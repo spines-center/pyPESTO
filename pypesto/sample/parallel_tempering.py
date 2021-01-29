@@ -6,23 +6,27 @@ from multiprocess import Manager, Queue, Process, Event
 import queue
 
 from ..problem import Problem
-from .sampler import Sampler, InternalSampler
+from .sampler import Sampler, InternalSampler, InternalSample
 from .result import McmcPtResult
 
 
 class ParallelTemperingSamplerWorker(Process):
-    def __init__(self, work_queue: Queue, return_queue: Queue):
+    def __init__(self, work_queue: Queue, return_queue: Queue, samplers: list):
         super().__init__()
         self._exit = Event()
         self._q = work_queue
         self._r = return_queue
+        self._samplers = samplers
 
     def run(self) -> None:
         while not self._exit.is_set():
             try:
-                id, sampler, beta = self._q.get(block=True, timeout=1)
+                id, new_last_sample, beta = self._q.get(block=True, timeout=1)
+                # TODO: sampler needs to be "gotten"
+                sampler = self._samplers[id]
+                sampler.set_last_sample(new_last_sample)
                 sampler.sample(n_samples=1, beta=beta)
-                self._r.put((id, sampler, beta))
+                self._r.put((id, sampler.get_last_sample(), beta))
                 self._q.task_done()
             except (EOFError, queue.Empty):
                 continue
@@ -92,25 +96,28 @@ class ParallelTemperingSampler(Sampler):
         with Manager() as mgr:
             workqueue = mgr.Queue(maxsize=len(self.samplers))
             donequeue = mgr.Queue(maxsize=len(self.samplers))
-            workers = [ParallelTemperingSamplerWorker(workqueue, donequeue) for _ in range(len(self.samplers))]
+            samplerlist = mgr.list(self.samplers)
+            workers = [ParallelTemperingSamplerWorker(workqueue, donequeue, samplerlist) for _ in range(len(self.samplers))]
             # for worker in workers:
             #     worker.daemon = True
             [worker.start() for worker in workers]
 
             # TODO: this loop really should be inside the workers
+            swapped = [None for _ in self.samplers]
+            last_samples = [None for _ in self.samplers]
             for i_sample in tqdm(range(int(n_samples))):
                 # sample
-                for id, sampler, beta in zip(range(len(self.samplers)), self.samplers, self.betas):
-                    workqueue.put((id, sampler, beta))  # TODO: pass only new_last_sample instead of entire sampler
+                for id, beta in zip(range(len(self.samplers)), self.betas):
+                    workqueue.put((id, swapped[id], beta))  # TODO: pass only new_last_sample instead of entire sampler
                     # sampler.sample(n_samples=1, beta=beta)
                 workqueue.join()  # blocks until all samplers have processed an item
 
                 for _ in range(len(self.samplers)):
-                    id, sampler, beta = donequeue.get()  # TODO: get only current_last_sample instead of entire sampler
-                    self.samplers[id] = sampler
+                    id, last_sample, beta = donequeue.get()  # TODO: get only current_last_sample instead of entire sampler
+                    last_samples[id] = last_sample
 
                 # swap samples
-                swapped = self.swap_samples()
+                swapped = self.swap_samples(last_samples)  # TODO: should return a list of new sample values in order
 
                 # adjust temperatures
                 self.adjust_betas(i_sample, swapped)
@@ -132,10 +139,10 @@ class ParallelTemperingSampler(Sampler):
             betas=self.betas
         )
 
-    def swap_samples(self) -> Sequence[bool]:
+    def swap_samples(self, last_samples: Sequence[InternalSample]) -> Sequence[Union[InternalSample, None]]:
         """Swap samples as in Vousden2016."""
         # for recording swaps
-        swapped = []
+        swapped = [None for _ in self.samplers]
 
         if len(self.betas) == 1:
             # nothing to be done
@@ -145,11 +152,15 @@ class ParallelTemperingSampler(Sampler):
         dbetas = self.betas[:-1] - self.betas[1:]
 
         # loop over chains from highest temperature down
-        for dbeta, sampler1, sampler2 in reversed(
-                list(zip(dbetas, self.samplers[:-1], self.samplers[1:]))):
+        # TODO: instead of sampler1, sampler2 -- use indices
+
+        # for dbeta, sampler1, sampler2 in reversed(
+        #         list(zip(dbetas, self.samplers[:-1], self.samplers[1:]))):
+        for dbeta, sampler1_idx, sampler2_idx in reversed(list(zip(
+                dbetas, list(range(len(self.samplers[:-1]))), list(range(len(self.samplers[1:])))))):
             # extract samples
-            sample1 = sampler1.get_last_sample()
-            sample2 = sampler2.get_last_sample()
+            sample1 = last_samples[sampler1_idx]
+            sample2 = last_samples[sampler2_idx]
 
             # extract log likelihood values
             sample1_llh = sample1.lpost - sample1.lprior
@@ -165,14 +176,16 @@ class ParallelTemperingSampler(Sampler):
             swap = np.log(u) < p_acc_swap
             if swap:
                 # swap
-                sampler2.set_last_sample(sample1)
-                sampler1.set_last_sample(sample2)
+                # sampler2.set_last_sample(sample1)
+                # sampler1.set_last_sample(sample2)
+                swapped[sampler2_idx] = sample1
+                swapped[sampler1_idx] = sample2
 
             # record
-            swapped.insert(0, swap)
+            # swapped.insert(0, swap)
         return swapped
 
-    def adjust_betas(self, i_sample: int, swapped: Sequence[bool]):
+    def adjust_betas(self, i_sample: int, swapped: Sequence[Union[None, InternalSample]]):
         """Adjust temperature values. Default: Do nothing."""
 
 
