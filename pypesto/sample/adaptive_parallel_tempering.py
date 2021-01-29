@@ -33,9 +33,9 @@ class AdaptiveParallelTemperingSampler(ParallelTemperingSampler):
         # swapped = np.array([int(swap) for swap in in_swapped])
         swapped = np.zeros_like(in_swapped)
         for idx, swap in enumerate(in_swapped):
-            if swap is bool:
+            if isinstance(swap, bool):
                 swapped[idx] = int(swap)
-            elif swap is InternalSample:
+            elif isinstance(swap, InternalSample):
                 swapped[idx] = 1
 
         # update betas
