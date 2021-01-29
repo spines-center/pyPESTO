@@ -31,7 +31,7 @@ class AdaptiveParallelTemperingSampler(ParallelTemperingSampler):
 
         # booleans to integer array
         # swapped = np.array([int(swap) for swap in in_swapped])
-        swapped = np.zeros_like(in_swapped)
+        swapped = np.zeros_like(in_swapped, dtype=np.int)
         for idx, swap in enumerate(in_swapped):
             if isinstance(swap, bool):
                 swapped[idx] = int(swap)

@@ -142,7 +142,7 @@ class ParallelTemperingSampler(Sampler):
     def swap_samples(self, last_samples: Sequence[InternalSample]) -> Sequence[Union[InternalSample, None]]:
         """Swap samples as in Vousden2016."""
         # for recording swaps
-        swapped = [None for _ in self.samplers]
+        swapped = [None for _ in self.samplers[:-1]]
 
         if len(self.betas) == 1:
             # nothing to be done
