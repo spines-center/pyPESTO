@@ -22,9 +22,9 @@ class ParallelTemperingSamplerWorker(Process):
         while not self._exit.is_set():
             try:
                 id, new_last_sample, beta = self._q.get(block=True, timeout=1)
-                # TODO: sampler needs to be "gotten"
                 sampler = self._samplers[id]
-                sampler.set_last_sample(new_last_sample)
+                if new_last_sample is not None:
+                    sampler.set_last_sample(new_last_sample)
                 sampler.sample(n_samples=1, beta=beta)
                 self._r.put((id, sampler.get_last_sample(), beta))
                 self._q.task_done()
