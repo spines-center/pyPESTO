@@ -107,20 +107,20 @@ class ParallelTemperingSampler(Sampler):
             last_samples = [None for _ in self.samplers]
             for i_sample in tqdm(range(int(n_samples))):
                 # sample
-                for id, beta in zip(range(len(self.samplers)), self.betas):
-                    workqueue.put((id, swapped[id], beta))  # TODO: pass only new_last_sample instead of entire sampler
+                for idx, beta in zip(range(len(self.samplers)), self.betas):
+                    workqueue.put((idx, swapped[idx], beta))
                     # sampler.sample(n_samples=1, beta=beta)
                 workqueue.join()  # blocks until all samplers have processed an item
 
                 for _ in range(len(self.samplers)):
-                    id, last_sample, beta = donequeue.get()  # TODO: get only current_last_sample instead of entire sampler
-                    last_samples[id] = last_sample
+                    idx, last_sample, beta = donequeue.get()
+                    last_samples[idx] = last_sample
 
                 # swap samples
-                swapped = self.swap_samples(last_samples)  # TODO: should return a list of new sample values in order
+                swapped = self.swap_samples(last_samples)
 
                 # adjust temperatures
-                self.adjust_betas(i_sample, swapped)
+                self.adjust_betas(i_sample, swapped, last_samples)
             [worker.terminate() for worker in workers]
             [worker.join() for worker in workers]
 
@@ -139,10 +139,10 @@ class ParallelTemperingSampler(Sampler):
             betas=self.betas
         )
 
-    def swap_samples(self, last_samples: Sequence[InternalSample]) -> Sequence[Union[InternalSample, None]]:
+    def swap_samples(self, last_samples: List[InternalSample]) -> List[Union[InternalSample, None]]:
         """Swap samples as in Vousden2016."""
         # for recording swaps
-        swapped = [None for _ in self.samplers[:-1]]
+        swapped = copy.deepcopy(last_samples)
 
         if len(self.betas) == 1:
             # nothing to be done
@@ -180,12 +180,16 @@ class ParallelTemperingSampler(Sampler):
                 # sampler1.set_last_sample(sample2)
                 swapped[sampler2_idx] = sample1
                 swapped[sampler1_idx] = sample2
-
+            else:
+                swapped[sampler2_idx] = sample2
+                swapped[sampler1_idx] = sample1
             # record
             # swapped.insert(0, swap)
         return swapped
 
-    def adjust_betas(self, i_sample: int, swapped: Sequence[Union[None, InternalSample]]):
+    def adjust_betas(self, i_sample: int,
+                     swapped: Sequence[Union[None, InternalSample]],
+                     last_samples: Sequence[Union[None, InternalSample]]):
         """Adjust temperature values. Default: Do nothing."""
 
 

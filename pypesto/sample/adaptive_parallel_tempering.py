@@ -19,7 +19,9 @@ class AdaptiveParallelTemperingSampler(ParallelTemperingSampler):
 
         return options
 
-    def adjust_betas(self, i_sample: int, in_swapped: Sequence[Union[None, bool, InternalSample]]):
+    def adjust_betas(self, i_sample: int,
+                     in_swapped: Sequence[Union[None, InternalSample]],
+                     last_samples: Sequence[Union[None, InternalSample]]):
         """Update temperatures as in Vousden2016."""
         if len(self.betas) == 1:
             return
@@ -31,11 +33,13 @@ class AdaptiveParallelTemperingSampler(ParallelTemperingSampler):
 
         # booleans to integer array
         # swapped = np.array([int(swap) for swap in in_swapped])
-        swapped = np.zeros_like(in_swapped, dtype=np.int)
-        for idx, swap in enumerate(in_swapped):
-            if isinstance(swap, bool):
-                swapped[idx] = int(swap)
-            elif isinstance(swap, InternalSample):
+        swapped = np.zeros_like(in_swapped[:-1], dtype=np.int)
+
+        # original was: [bool(0, 1) ... bool(last-3, last-2), bool(last-2, last-1), bool(last-1, last)]
+        for idx in range(swapped.size):
+            if np.array_equal(in_swapped[idx].x, last_samples[idx].x):
+                swapped[idx] = 0
+            else:
                 swapped[idx] = 1
 
         # update betas
