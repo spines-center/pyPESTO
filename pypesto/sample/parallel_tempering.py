@@ -1,3 +1,4 @@
+import logging
 from typing import Dict, List, Sequence, Union
 from tqdm import tqdm
 import numpy as np
@@ -10,8 +11,11 @@ from .sampler import Sampler, InternalSampler, InternalSample
 from .result import McmcPtResult
 
 
+logger = logging.getLogger(__name__)
+
+
 class ParallelTemperingSamplerWorker(Process):
-    def __init__(self, work_queue: Queue, return_queue: Queue, samplers: list):
+    def __init__(self, work_queue: Queue, return_queue: Queue, samplers: Manager):
         super().__init__()
         self._exit = Event()
         self._q = work_queue
@@ -26,6 +30,8 @@ class ParallelTemperingSamplerWorker(Process):
                 if new_last_sample is not None:
                     sampler.set_last_sample(new_last_sample)
                 sampler.sample(n_samples=1, beta=beta)
+                logger.debug(f'sampler {id} trace_x: {sampler.trace_x}')
+                self._samplers[id] = sampler
                 self._r.put((id, sampler.get_last_sample(), beta))
                 self._q.task_done()
             except (EOFError, queue.Empty):
@@ -123,6 +129,8 @@ class ParallelTemperingSampler(Sampler):
                 self.adjust_betas(i_sample, swapped, last_samples)
             [worker.terminate() for worker in workers]
             [worker.join() for worker in workers]
+            self.samplers = list(samplerlist)
+
 
     def get_samples(self) -> McmcPtResult:
         """Concatenate all chains."""
