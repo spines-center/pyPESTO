@@ -15,24 +15,35 @@ logger = logging.getLogger(__name__)
 
 
 class ParallelTemperingSamplerWorker(Process):
-    def __init__(self, work_queue: Queue, return_queue: Queue, samplers: Manager):
+    def __init__(self, work_queue: Queue, return_queue: Queue, final_queue: Queue,
+                 idx: int, sampler_obj: InternalSampler):
         super().__init__()
         self._exit = Event()
         self._q = work_queue
         self._r = return_queue
-        self._samplers = samplers
+        self._f = final_queue
+        self._idx = idx
+        self._sampler = sampler_obj
 
     def run(self) -> None:
         while not self._exit.is_set():
             try:
-                id, new_last_sample, beta = self._q.get(block=True, timeout=1)
-                sampler = self._samplers[id]
+                idx, new_last_sample, beta, stop = self._q.get(block=True, timeout=0.01)
+                if idx != self._idx:
+                    # logger.debug(f'sampler {self._idx} got {idx}')
+                    self._q.task_done()
+                    self._q.put((idx, new_last_sample, beta, stop))
+                    continue
+                if stop:
+                    # logger.debug(f'STOPPING sampler {self._idx} trace_x: {self._sampler.trace_x}')
+                    self._f.put((self._idx, copy.deepcopy(self._sampler)))
+                    self._q.task_done()
+                    return
                 if new_last_sample is not None:
-                    sampler.set_last_sample(new_last_sample)
-                sampler.sample(n_samples=1, beta=beta)
-                logger.debug(f'sampler {id} trace_x: {sampler.trace_x}')
-                self._samplers[id] = sampler
-                self._r.put((id, sampler.get_last_sample(), beta))
+                    self._sampler.set_last_sample(new_last_sample)
+                self._sampler.sample(n_samples=1, beta=beta)
+                # logger.debug(f'sampler {idx} trace_x: {self._sampler.trace_x}')
+                self._r.put((idx, self._sampler.get_last_sample(), beta))
                 self._q.task_done()
             except (EOFError, queue.Empty):
                 continue
@@ -102,19 +113,19 @@ class ParallelTemperingSampler(Sampler):
         with Manager() as mgr:
             workqueue = mgr.Queue(maxsize=len(self.samplers))
             donequeue = mgr.Queue(maxsize=len(self.samplers))
-            samplerlist = mgr.list(self.samplers)
-            workers = [ParallelTemperingSamplerWorker(workqueue, donequeue, samplerlist) for _ in range(len(self.samplers))]
+            finalqueue = mgr.Queue(maxsize=len(self.samplers))
+            workers = [ParallelTemperingSamplerWorker(workqueue, donequeue, finalqueue, idx, copy.deepcopy(sampler))
+                       for idx, sampler in enumerate(self.samplers)]
             # for worker in workers:
             #     worker.daemon = True
             [worker.start() for worker in workers]
 
-            # TODO: this loop really should be inside the workers
             swapped = [None for _ in self.samplers]
             last_samples = [None for _ in self.samplers]
             for i_sample in tqdm(range(int(n_samples))):
                 # sample
-                for idx, beta in zip(range(len(self.samplers)), self.betas):
-                    workqueue.put((idx, swapped[idx], beta))
+                for idx, beta in enumerate(self.betas):
+                    workqueue.put((idx, swapped[idx], beta, False))
                     # sampler.sample(n_samples=1, beta=beta)
                 workqueue.join()  # blocks until all samplers have processed an item
 
@@ -127,10 +138,17 @@ class ParallelTemperingSampler(Sampler):
 
                 # adjust temperatures
                 self.adjust_betas(i_sample, swapped, last_samples)
-            [worker.terminate() for worker in workers]
+            # logger.debug('stopping workers...')
+            [workqueue.put((idx, None, 0.00, True)) for idx, _ in enumerate(self.samplers)]
+            workqueue.join()
+            # logger.debug('reached getting from finalqueue')
+            for _ in self.samplers:
+                idx, sampler_obj = finalqueue.get()
+                # logger.debug(f'GATHERED sampler {idx} trace_x: {sampler_obj.trace_x}')
+                self.samplers[idx] = sampler_obj
             [worker.join() for worker in workers]
-            self.samplers = list(samplerlist)
-
+            [worker.terminate() for worker in workers]
+            # logger.debug('joined all workers')
 
     def get_samples(self) -> McmcPtResult:
         """Concatenate all chains."""
