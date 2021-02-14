@@ -1,7 +1,7 @@
 import numpy as np
 
 from .base import ObjectiveBase, ResultDict
-from typing import Callable, Sequence, Tuple, Union
+from typing import Callable, Sequence, Tuple, Union, Any
 
 from .constants import MODE_FUN, MODE_RES, FVAL, GRAD, HESS, RES, SRES
 
@@ -68,13 +68,19 @@ class Objective(ObjectiveBase):
         Parameter names. None if no names provided, otherwise a list of str,
         length dim_full (as in the Problem class). Can be read by the
         problem.
+
+    fun_args:
+        Additional parameters passed to fun:
+            ``fun(x, *fun_args) -> float``
     """
     def __init__(self, fun: Callable = None,
                  grad: Union[Callable, bool] = None, hess: Callable = None,
                  hessp: Callable = None, res: Callable = None,
                  sres: Union[Callable, bool] = None,
-                 x_names: Sequence[str] = None):
+                 x_names: Sequence[str] = None,
+                 fun_args: Sequence[Any] = None):
         self.fun = fun
+        self.fun_args = fun_args
         self.grad = grad
         self.hess = hess
         self.hessp = hessp
@@ -152,26 +158,26 @@ class Objective(ObjectiveBase):
     ) -> ResultDict:
         if sensi_orders == (0,):
             if self.grad is True:
-                fval = self.fun(x)[0]
+                fval = self.fun(x, *self.fun_args)[0]
             else:
-                fval = self.fun(x)
+                fval = self.fun(x, *self.fun_args)
             result = {FVAL: fval}
 
         elif sensi_orders == (1,):
             if self.grad is True:
-                grad = self.fun(x)[1]
+                grad = self.fun(x, *self.fun_args)[1]
             else:
                 grad = self.grad(x)
             result = {GRAD: grad}
         elif sensi_orders == (2,):
             if self.hess is True:
-                hess = self.fun(x)[2]
+                hess = self.fun(x, *self.fun_args)[2]
             else:
                 hess = self.hess(x)
             result = {HESS: hess}
         elif sensi_orders == (0, 1):
             if self.grad is True:
-                fval, grad = self.fun(x)[0:2]
+                fval, grad = self.fun(x, *self.fun_args)[0:2]
             else:
                 fval = self.fun(x)
                 grad = self.grad(x)
@@ -179,24 +185,24 @@ class Objective(ObjectiveBase):
                       GRAD: grad}
         elif sensi_orders == (1, 2):
             if self.hess is True:
-                grad, hess = self.fun(x)[1:3]
+                grad, hess = self.fun(x, *self.fun_args)[1:3]
             else:
                 hess = self.hess(x)
                 if self.grad is True:
-                    grad = self.fun(x)[1]
+                    grad = self.fun(x, *self.fun_args)[1]
                 else:
                     grad = self.grad(x)
             result = {GRAD: grad,
                       HESS: hess}
         elif sensi_orders == (0, 1, 2):
             if self.hess is True:
-                fval, grad, hess = self.fun(x)[0:3]
+                fval, grad, hess = self.fun(x, *self.fun_args)[0:3]
             else:
                 hess = self.hess(x)
                 if self.grad is True:
-                    fval, grad = self.fun(x)[0:2]
+                    fval, grad = self.fun(x, *self.fun_args)[0:2]
                 else:
-                    fval = self.fun(x)
+                    fval = self.fun(x, *self.fun_args)
                     grad = self.grad(x)
             result = {FVAL: fval,
                       GRAD: grad,
