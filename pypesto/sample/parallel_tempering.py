@@ -1,6 +1,6 @@
 import logging
 from typing import Dict, List, Sequence, Union, Tuple
-from multiprocessing import Pool, Manager, Queue
+from multiprocessing import Pool, Manager, Queue, Pipe
 from tqdm import tqdm
 import numpy as np
 import copy
@@ -234,6 +234,8 @@ class PoolParallelTemperingSampler(ParallelTemperingSampler):
     def sample(self, n_samples: int, beta: float = 1.):
         with Manager() as mgr:
             queue_work = mgr.Queue(maxsize=len(self.samplers))
+            # TODO: use pipes instead of queue for faster, directed messaging.
+            # pipes_work = [Pipe() for idx in range(self.num_chains)]
             queue_return = mgr.Queue(maxsize=len(self.samplers))
 
             _ = self.parallel_pool.starmap(
