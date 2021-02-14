@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, List, Sequence, Union
+from typing import Dict, List, Sequence, Union, Tuple
 from multiprocessing import Pool, Manager, Queue
 from tqdm import tqdm
 import numpy as np
@@ -16,37 +16,37 @@ logger = logging.getLogger(__name__)
 
 _q: Union[None, Queue] = None
 _r: Union[None, Queue] = None
-_f: Union[None, Queue] = None
 _idx: Union[None, int] = None
 _sampler: Union[None, InternalSampler] = None
 
 
-def worker_init(work_queue: Queue, return_queue: Queue, final_queue: Queue,
+def worker_init(work_queue: Queue, return_queue: Queue,
                 idx: int, sampler_obj: InternalSampler) -> bool:
-    global _q, _r, _f, _idx, _sampler
+    global _q, _r, _idx, _sampler
     _q = work_queue
     _r = return_queue
-    _f = final_queue
     _idx = idx
     _sampler = sampler_obj
     return True
 
 
-def worker_run() -> None:
-    global _q, _r, _f, _idx, _sampler
+def worker_run() -> Tuple[int, InternalSampler]:
+    global _q, _r, _idx, _sampler
     while True:
         try:
-            idx, new_last_sample, beta, stop = _q.get(block=True, timeout=0.01)
+            idx, new_last_sample, beta, stop = _q.get(block=True, timeout=0.001)
+            if _idx == idx:
+                logger.debug(f'sampler {_idx}: new_last_sample={new_last_sample}, beta={beta}, stop={stop}')
             if idx != _idx:
-                # logger.debug(f'sampler {_idx} got {idx}')
+                # logger.debug(f'sampler {_idx} got {idx} and {stop}')
                 _q.task_done()
                 _q.put((idx, new_last_sample, beta, stop))
                 continue
-            if stop:
-                # logger.debug(f'STOPPING sampler {_idx} trace_x: {_sampler.trace_x}')
-                _f.put((_idx, copy.deepcopy(_sampler)))
+            if stop is True:
+                logger.debug(f'sampler {_idx}: STOPPING trace_x: {len(_sampler.trace_x)}')
                 _q.task_done()
-                return
+                logger.debug(f'sampler {_idx}: RETURNING')
+                return _idx, _sampler
             if new_last_sample is not None:
                 _sampler.set_last_sample(copy.deepcopy(new_last_sample))
             _sampler.sample(n_samples=1, beta=beta)
@@ -233,34 +233,33 @@ class PoolParallelTemperingSampler(ParallelTemperingSampler):
 
     def sample(self, n_samples: int, beta: float = 1.):
         with Manager() as mgr:
-            workqueue = mgr.Queue(maxsize=len(self.samplers))
-            donequeue = mgr.Queue(maxsize=len(self.samplers))
-            finalqueue = mgr.Queue(maxsize=len(self.samplers))
+            queue_work = mgr.Queue(maxsize=len(self.samplers))
+            queue_return = mgr.Queue(maxsize=len(self.samplers))
 
             _ = self.parallel_pool.starmap(
                 func=worker_init,
-                iterable=[(workqueue, donequeue, finalqueue, idx, self.samplers[idx])
+                iterable=[(queue_work, queue_return, idx, self.samplers[idx])
                           for idx in range(self.num_chains)])
 
-            _ = [self.parallel_pool.apply_async(func=worker_run) for _ in range(self.num_chains)]
+            worker_results = [self.parallel_pool.apply_async(func=worker_run) for _ in range(self.num_chains)]
 
             swapped = [None for _ in self.samplers]
             last_samples = [None for _ in self.samplers]
             for i_sample in tqdm(range(int(n_samples))):
                 for idx, beta in enumerate(self.betas):
-                    workqueue.put((idx, copy.deepcopy(swapped[idx]), beta, False))  # sample
+                    queue_work.put((idx, copy.deepcopy(swapped[idx]), beta, False))  # sample
                 for _ in range(len(self.samplers)):
-                    idx, last_sample, beta = donequeue.get()  # get sample
+                    idx, last_sample, beta = queue_return.get()  # get sample
                     last_samples[idx] = last_sample
                 swapped = self.swap_samples(last_samples)  # swap samples
                 self.adjust_betas(i_sample, swapped, last_samples)  # adjust temps
-            logger.debug('stopping workers...')
-            _ = [workqueue.put((idx, None, 0.00, True)) for idx, _ in enumerate(self.samplers)]
-            workqueue.join()
-            logger.debug('reached getting from finalqueue')
-            for _ in self.samplers:
-                idx, sampler_obj = finalqueue.get()
-                logger.debug(f'GATHERED sampler {idx} trace_x: {sampler_obj.trace_x.size}')
+            # logger.debug('stopping workers...')
+            _ = [queue_work.put((idx, None, 0.00, True)) for idx in range(self.num_chains)]
+            queue_work.join()
+            # logger.debug('reached getting from finalqueue')
+            for worker_result in worker_results:
+                idx, sampler_obj = worker_result.get()
+                logger.debug(f'GATHERED sampler {idx} trace_x: {len(sampler_obj.trace_x)}')
                 self.samplers[idx] = sampler_obj
 
             self.parallel_pool.close()
