@@ -254,13 +254,13 @@ class PoolParallelTemperingSampler(ParallelTemperingSampler):
                     last_samples[idx] = last_sample
                 swapped = self.swap_samples(last_samples)  # swap samples
                 self.adjust_betas(i_sample, swapped, last_samples)  # adjust temps
-            # logger.debug('stopping workers...')
+            logger.debug('stopping workers...')
             _ = [workqueue.put((idx, None, 0.00, True)) for idx, _ in enumerate(self.samplers)]
             workqueue.join()
-            # logger.debug('reached getting from finalqueue')
+            logger.debug('reached getting from finalqueue')
             for _ in self.samplers:
                 idx, sampler_obj = finalqueue.get()
-                # logger.debug(f'GATHERED sampler {idx} trace_x: {sampler_obj.trace_x}')
+                logger.debug(f'GATHERED sampler {idx} trace_x: {sampler_obj.trace_x.size}')
                 self.samplers[idx] = sampler_obj
 
             self.parallel_pool.close()
