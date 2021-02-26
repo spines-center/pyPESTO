@@ -1,6 +1,9 @@
 import logging
 from typing import Dict, List, Sequence, Union, Tuple
-from multiprocessing import Pool, Manager, Queue, Pipe
+
+# TODO: align with main pypesto multiprocessing format
+from multiprocess import Pool, Manager, Queue, Pipe
+
 from tqdm import tqdm
 import numpy as np
 import copy
@@ -34,7 +37,8 @@ def worker_run() -> Tuple[int, InternalSampler]:
     global _q, _r, _idx, _sampler
     while True:
         try:
-            idx, new_last_sample, beta, stop = _q.get(block=True, timeout=0.001)
+            logger.debug(f'sampler {_idx}: WAITING')
+            idx, new_last_sample, beta, stop = _q.get()
             if _idx == idx:
                 logger.debug(f'sampler {_idx}: new_last_sample={new_last_sample}, beta={beta}, stop={stop}')
             else:
@@ -46,9 +50,12 @@ def worker_run() -> Tuple[int, InternalSampler]:
                 return _idx, _sampler
             if new_last_sample is not None:
                 _sampler.set_last_sample(copy.deepcopy(new_last_sample))
+            logger.debug(f'sampler {_idx}: SAMPLING')
             _sampler.sample(n_samples=1, beta=beta)
-            # logger.debug(f'sampler {idx} trace_x: {_sampler.trace_x}')
+            logger.debug(f'sampler {idx} trace_x: {len(_sampler.trace_x)}')
+            logger.debug(f'sampler {_idx}: RETURNING')
             _r.put((idx, copy.deepcopy(_sampler.get_last_sample()), beta))
+            logger.debug(f'sampler {_idx}: MARKING COMPLETE')
             _q.task_done()
         except (EOFError, queue.Empty):
             continue
@@ -243,12 +250,16 @@ class PoolParallelTemperingSampler(ParallelTemperingSampler):
             swapped = [None for _ in self.samplers]
             last_samples = [None for _ in self.samplers]
             for i_sample in tqdm(range(int(n_samples))):
+                logger.debug('MAIN PROCESS: deploying work...')
                 for idx, beta in enumerate(self.betas):
                     queues_work[idx].put((idx, copy.deepcopy(swapped[idx]), beta, False))  # sample
+                logger.debug('MAIN PROCESS: waiting for return...')
                 for idx in range(len(self.samplers)):
                     idx, last_sample, beta = queues_return[idx].get()  # get sample
                     last_samples[idx] = last_sample
+                logger.debug('MAIN PROCESS: swapping samples...')
                 swapped = self.swap_samples(last_samples)  # swap samples
+                logger.debug('MAIN PROCESS: swapping samples...')
                 self.adjust_betas(i_sample, swapped, last_samples)  # adjust temps
             # logger.debug('stopping workers...')
             _ = [queues_work[idx].put((idx, None, 0.00, True)) for idx in range(self.num_chains)]
