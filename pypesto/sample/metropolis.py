@@ -51,7 +51,7 @@ class MetropolisSampler(InternalSampler):
         show_progress = self.options['show_progress']
 
         # loop over iterations
-        for _ in tqdm(range(int(n_samples)), disable=not show_progress):
+        for _ in range(int(n_samples)):  # tqdm(range(int(n_samples)), disable=not show_progress):
             # perform step
             x, lpost, lprior = self._perform_step(
                 x=x, lpost=lpost, lprior=lprior, beta=beta)

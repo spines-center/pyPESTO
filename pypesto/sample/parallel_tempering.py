@@ -8,6 +8,7 @@ from tqdm import tqdm
 import numpy as np
 import copy
 import queue
+import time
 
 from ..problem import Problem
 from .sampler import Sampler, InternalSampler, InternalSample
@@ -17,47 +18,84 @@ from .result import McmcPtResult
 logger = logging.getLogger(__name__)
 
 
-_q: Union[None, Queue] = None
-_r: Union[None, Queue] = None
-_idx: Union[None, int] = None
-_sampler: Union[None, InternalSampler] = None
+# _q: Union[None, Queue] = None
+# _r: Union[None, Queue] = None
+# _idx: Union[None, int] = None
+# _sampler: Union[None, InternalSampler] = None
 
 
-def worker_init(work_queue: Queue, return_queue: Queue,
-                idx: int, sampler_obj: InternalSampler) -> bool:
-    global _q, _r, _idx, _sampler
+# def worker_init(work_queue: Queue, return_queue: Queue,
+#                 idx: int, sampler_obj: InternalSampler) -> bool:
+#     global _q, _r, _idx, _sampler
+#     _q = work_queue
+#     _r = return_queue
+#     _idx = idx
+#     _sampler = sampler_obj
+#     return True
+
+
+# def worker_run() -> Tuple[int, InternalSampler]:
+#     global _q, _r, _idx, _sampler
+#     while True:
+#         try:
+#             logger.debug(f'sampler {_idx}: WAITING')
+#             idx, new_last_sample, beta, stop = _q.get(timeout=5)
+#             if _idx == idx:
+#                 logger.debug(f'sampler {_idx}: new_last_sample={new_last_sample}, beta={beta}, stop={stop}')
+#             else:
+#                 logger.debug(f'sampler {_idx}: encountered incorrect instruction')
+#                 raise ProcessLookupError('received wrong instructions.')
+#             if stop is True:
+#                 # logger.debug(f'sampler {_idx}: STOPPING trace_x: {len(_sampler.trace_x)}')
+#                 _q.task_done()
+#                 # logger.debug(f'sampler {_idx}: RETURNING')
+#                 return _idx, _sampler
+#             if new_last_sample is not None:
+#                 _sampler.set_last_sample(copy.deepcopy(new_last_sample))
+#             # logger.debug(f'sampler {_idx}: SAMPLING')
+#             _sampler.sample(n_samples=1, beta=beta)
+#             # logger.debug(f'sampler {idx} trace_x: {len(_sampler.trace_x)}')
+#             logger.debug(f'sampler {_idx}: RETURNING')
+#             _r.put((idx, copy.deepcopy(_sampler.get_last_sample()), beta))
+#             # logger.debug(f'sampler {_idx}: MARKING COMPLETE')
+#             _q.task_done()
+#         except (EOFError, queue.Empty):
+#             time.sleep(1)
+#             continue
+
+
+def worker_run_combined(
+        work_queue: Queue, return_queue: Queue, idx: int, sampler_obj: InternalSampler
+    ) -> bool:
     _q = work_queue
     _r = return_queue
     _idx = idx
     _sampler = sampler_obj
-    return True
-
-
-def worker_run() -> Tuple[int, InternalSampler]:
-    global _q, _r, _idx, _sampler
     while True:
         try:
-            logger.debug(f'sampler {_idx}: WAITING')
+            # logger.debug(f'sampler {_idx}: WAITING')
             idx, new_last_sample, beta, stop = _q.get()
-            if _idx == idx:
-                logger.debug(f'sampler {_idx}: new_last_sample={new_last_sample}, beta={beta}, stop={stop}')
-            else:
+            # if _idx == idx:
+            #     logger.debug(f'sampler {_idx}: new_last_sample={new_last_sample}, beta={beta}, stop={stop}')
+            if _idx != idx:
+                # logger.debug(f'sampler {_idx}: encountered incorrect instruction')
                 raise ProcessLookupError('received wrong instructions.')
             if stop is True:
-                logger.debug(f'sampler {_idx}: STOPPING trace_x: {len(_sampler.trace_x)}')
+                # logger.debug(f'sampler {_idx}: STOPPING trace_x: {len(_sampler.trace_x)}')
                 _q.task_done()
-                logger.debug(f'sampler {_idx}: RETURNING')
+                # logger.debug(f'sampler {_idx}: RETURNING')
                 return _idx, _sampler
             if new_last_sample is not None:
                 _sampler.set_last_sample(copy.deepcopy(new_last_sample))
             logger.debug(f'sampler {_idx}: SAMPLING')
             _sampler.sample(n_samples=1, beta=beta)
-            logger.debug(f'sampler {idx} trace_x: {len(_sampler.trace_x)}')
-            logger.debug(f'sampler {_idx}: RETURNING')
+            # logger.debug(f'sampler {idx} trace_x: {len(_sampler.trace_x)}')
+            # logger.debug(f'sampler {_idx}: RETURNING')
             _r.put((idx, copy.deepcopy(_sampler.get_last_sample()), beta))
             logger.debug(f'sampler {_idx}: MARKING COMPLETE')
             _q.task_done()
         except (EOFError, queue.Empty):
+            time.sleep(1)
             continue
 
 
@@ -195,7 +233,7 @@ class PoolParallelTemperingSampler(ParallelTemperingSampler):
                  betas: Sequence[float] = None,
                  n_chains: int = None,
                  options: Dict = None,
-                 parallel_pool: Union[Pool] = None
+                 parallel_pool: Pool = None
                  ):
         super().__init__(internal_sampler, betas, n_chains, options)
         self.num_chains = n_chains
@@ -237,19 +275,21 @@ class PoolParallelTemperingSampler(ParallelTemperingSampler):
 
     def sample(self, n_samples: int, beta: float = 1.):
         with Manager() as mgr:
-            queues_work = [mgr.Queue(maxsize=1) for _ in range(self.num_chains)]
-            queues_return = [mgr.Queue(maxsize=1) for _ in range(self.num_chains)]
+            queues_work = [mgr.Queue(maxsize=2) for _ in range(self.num_chains)]
+            queues_return = [mgr.Queue(maxsize=2) for _ in range(self.num_chains)]
 
-            _ = self.parallel_pool.starmap(
-                func=worker_init,
+            worker_results = self.parallel_pool.starmap_async(
+                func=worker_run_combined,  # func=worker_init
                 iterable=[(queues_work[idx], queues_return[idx], idx, self.samplers[idx])
                           for idx in range(self.num_chains)])
 
-            worker_results = [self.parallel_pool.apply_async(func=worker_run) for _ in range(self.num_chains)]
-
+            time.sleep(3.0)
+            # worker_results = [self.parallel_pool.apply_async(func=worker_run) for _ in range(self.num_chains)]
+            # time.sleep(3.0)
             swapped = [None for _ in self.samplers]
             last_samples = [None for _ in self.samplers]
-            for i_sample in tqdm(range(int(n_samples))):
+            for i_sample in range(int(n_samples)):  # tqdm(range(int(n_samples))):
+                print(f"!! Iteration {i_sample} / {int(n_samples)}")
                 logger.debug('MAIN PROCESS: deploying work...')
                 for idx, beta in enumerate(self.betas):
                     queues_work[idx].put((idx, copy.deepcopy(swapped[idx]), beta, False))  # sample
@@ -259,20 +299,30 @@ class PoolParallelTemperingSampler(ParallelTemperingSampler):
                     last_samples[idx] = last_sample
                 logger.debug('MAIN PROCESS: swapping samples...')
                 swapped = self.swap_samples(last_samples)  # swap samples
-                logger.debug('MAIN PROCESS: swapping samples...')
+                # logger.debug('MAIN PROCESS: swapping samples...')
                 self.adjust_betas(i_sample, swapped, last_samples)  # adjust temps
-            # logger.debug('stopping workers...')
+                # logger.debug(f"swapped: {swapped}")
+                # logger.debug(f"last_sample: {last_samples}")
+            # # logger.debug('stopping workers...')
+            logger.debug('MAIN PROCESS: stopping workers...')
             _ = [queues_work[idx].put((idx, None, 0.00, True)) for idx in range(self.num_chains)]
+            logger.debug('MAIN PROCESS: waiting for workers to stop...')
             _ = [queues_work[idx].join() for idx in range(self.num_chains)]
-            # logger.debug('reached getting from finalqueue')
+            # # logger.debug('reached getting from finalqueue')
             for worker_result in worker_results:
                 idx, sampler_obj = worker_result.get()
-                logger.debug(f'GATHERED sampler {idx} trace_x: {len(sampler_obj.trace_x)}')
+                # logger.debug(f'GATHERED sampler {idx} trace_x: {len(sampler_obj.trace_x)}')
                 self.samplers[idx] = sampler_obj
 
+            ##### NOT SURE IF THIS IS NEEDED
+            # for qu in queues_work:
+            #     qu.close()
+            # for qu in queues_return:
+            #     qu.close()
+            ##### END UNSURE BLOCK
             self.parallel_pool.close()
             self.parallel_pool.join()
-            # logger.debug('joined all workers')
+            # # logger.debug('joined all workers')
 
     def get_samples(self) -> McmcPtResult:
         """Concatenate all chains."""
