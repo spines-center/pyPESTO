@@ -309,10 +309,10 @@ class PoolParallelTemperingSampler(ParallelTemperingSampler):
             logger.debug('MAIN PROCESS: waiting for workers to stop...')
             _ = [queues_work[idx].join() for idx in range(self.num_chains)]
             # # logger.debug('reached getting from finalqueue')
-            for worker_result in worker_results:
-                idx, sampler_obj = worker_result.get()
-                # logger.debug(f'GATHERED sampler {idx} trace_x: {len(sampler_obj.trace_x)}')
-                self.samplers[idx] = sampler_obj
+            # for worker_result in worker_results:
+            idxs_and_sampler_objs = list(worker_results.get())
+            # logger.debug(f'GATHERED sampler {idx} trace_x: {len(sampler_obj.trace_x)}')
+            self.samplers[idx] = idxs_and_sampler_objs[idx]
 
             ##### NOT SURE IF THIS IS NEEDED
             # for qu in queues_work:
