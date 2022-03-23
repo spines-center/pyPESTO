@@ -289,7 +289,7 @@ class PoolParallelTemperingSampler(ParallelTemperingSampler):
             swapped = [None for _ in self.samplers]
             last_samples = [None for _ in self.samplers]
             for i_sample in range(int(n_samples)):  # tqdm(range(int(n_samples))):
-                print(f"!! Iteration {i_sample} / {int(n_samples)}")
+                print(f"!! Iteration {i_sample:5} / {int(n_samples):5} !! start time: {time.time()}")
                 logger.debug('MAIN PROCESS: deploying work...')
                 for idx, beta in enumerate(self.betas):
                     queues_work[idx].put((idx, copy.deepcopy(swapped[idx]), beta, False))  # sample
@@ -331,8 +331,8 @@ class PoolParallelTemperingSampler(ParallelTemperingSampler):
         """Concatenate all chains."""
         # results = [sampler.get_samples() for sampler in self.samplers]
         results = self.samplers
-        for idx, result in enumerate(results):
-            print(f"{idx}: {result.trace_x.shape}")
+        # for idx, result in enumerate(results):
+        #     print(f"{idx}: {result.trace_x.shape}")
         trace_x = np.array([result.trace_x[0] for result in results])
         trace_neglogpost = np.array([result.trace_neglogpost[0]
                                      for result in results])
