@@ -84,7 +84,7 @@ def worker_run_combined(
                 # logger.debug(f'sampler {_idx}: STOPPING trace_x: {len(_sampler.trace_x)}')
                 _q.task_done()
                 # logger.debug(f'sampler {_idx}: RETURNING')
-                return _idx, _sampler
+                return _idx, _sampler.get_samples()
             if new_last_sample is not None:
                 _sampler.set_last_sample(copy.deepcopy(new_last_sample))
             logger.debug(f'sampler {_idx}: SAMPLING')
@@ -310,10 +310,13 @@ class PoolParallelTemperingSampler(ParallelTemperingSampler):
             _ = [queues_work[idx].join() for idx in range(self.num_chains)]
             # # logger.debug('reached getting from finalqueue')
             # for worker_result in worker_results:
-            idxs_and_sampler_objs = list(worker_results.get())
+            idxs_and_sampler_objs = {idx: sampler for idx, sampler in worker_results.get()}
+            # print(f"idxs_and_sampler_objs: {[key for key in idxs_and_sampler_objs.keys()]}")
             # logger.debug(f'GATHERED sampler {idx} trace_x: {len(sampler_obj.trace_x)}')
-            self.samplers[idx] = idxs_and_sampler_objs[idx]
+            for idx, sampler_result in idxs_and_sampler_objs.items():
+                self.samplers[idx] = sampler_result
 
+            # print(f"self.samplers: {[type(x) for x in self.samplers]}")
             ##### NOT SURE IF THIS IS NEEDED
             # for qu in queues_work:
             #     qu.close()
@@ -326,7 +329,10 @@ class PoolParallelTemperingSampler(ParallelTemperingSampler):
 
     def get_samples(self) -> McmcPtResult:
         """Concatenate all chains."""
-        results = [sampler.get_samples() for sampler in self.samplers]
+        # results = [sampler.get_samples() for sampler in self.samplers]
+        results = self.samplers
+        for idx, result in enumerate(results):
+            print(f"{idx}: {result.trace_x.shape}")
         trace_x = np.array([result.trace_x[0] for result in results])
         trace_neglogpost = np.array([result.trace_neglogpost[0]
                                      for result in results])
