@@ -70,7 +70,7 @@ class PoolAdaptiveParallelTemperingSampler(PoolParallelTemperingSampler):
 
         # booleans to integer array
         # swapped = np.array([int(swap) for swap in in_swapped])
-        swapped = np.zeros_like(in_swapped[:-1], dtype=np.int)
+        swapped = np.zeros_like(in_swapped[:-1], dtype=int)
 
         # original was: [bool(0, 1) ... bool(last-3, last-2), bool(last-2, last-1), bool(last-1, last)]
         for idx in range(swapped.size):
